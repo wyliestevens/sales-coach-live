@@ -12,7 +12,7 @@ export async function GET() {
   const calls = await sql`
     SELECT id, started_at, duration, talk_ratio_you, talk_ratio_prospect,
            filler_words, sentiment_journey, objections, buying_signals, audio_url,
-           created_at
+           prospect_name, notes, created_at
     FROM calls
     WHERE user_id = ${user.id}
     ORDER BY created_at DESC

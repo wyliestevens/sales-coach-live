@@ -15,6 +15,8 @@ interface CallRecord {
   objections: string[];
   buying_signals: string[];
   audio_url: string | null;
+  prospect_name: string;
+  notes: string;
 }
 
 interface CallDetail extends CallRecord {
@@ -33,6 +35,9 @@ export default function HistoryPage() {
   const [selectedCall, setSelectedCall] = useState<CallDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [editingName, setEditingName] = useState('');
+  const [editingNotes, setEditingNotes] = useState('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const router = useRouter();
 
   useEffect(() => {
@@ -61,8 +66,32 @@ export default function HistoryPage() {
       if (!res.ok) return;
       const data = await res.json();
       setSelectedCall(data.call);
+      setEditingName(data.call.prospect_name || '');
+      setEditingNotes(data.call.notes || '');
+      setSaveStatus('idle');
     } catch {
       setError('Failed to load call details');
+    }
+  }
+
+  async function saveCallInfo() {
+    if (!selectedCall) return;
+    setSaveStatus('saving');
+    try {
+      await fetch(`/api/calls/${selectedCall.id}/update`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prospectName: editingName, notes: editingNotes }),
+      });
+      setSelectedCall({ ...selectedCall, prospect_name: editingName, notes: editingNotes });
+      setCalls((prev) =>
+        prev.map((c) => (c.id === selectedCall.id ? { ...c, prospect_name: editingName, notes: editingNotes } : c))
+      );
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch {
+      setError('Failed to save');
+      setSaveStatus('idle');
     }
   }
 
@@ -87,13 +116,55 @@ export default function HistoryPage() {
             &larr; Back to History
           </button>
 
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold">
-              Call — {new Date(selectedCall.started_at).toLocaleDateString()} at{' '}
-              {new Date(selectedCall.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </h1>
-            <span className="text-gray-400 font-mono">{formatDuration(selectedCall.duration)}</span>
+          {/* Prospect name and date */}
+          <div className="mb-6">
+            <div className="flex items-center gap-3 mb-3">
+              <input
+                type="text"
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                placeholder="Prospect name (click to edit)"
+                className="text-2xl font-bold bg-transparent border-b border-transparent hover:border-white/20 focus:border-red-500 focus:outline-none transition-colors w-full py-1"
+              />
+              <span className="text-gray-400 font-mono shrink-0">{formatDuration(selectedCall.duration)}</span>
+            </div>
+            <p className="text-sm text-gray-500">
+              {new Date(selectedCall.started_at).toLocaleDateString('en-US', {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              })} at {new Date(selectedCall.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
           </div>
+
+          {/* Notes */}
+          <div className="mb-6">
+            <label className="block text-sm text-gray-500 uppercase tracking-wider mb-2">Notes</label>
+            <textarea
+              value={editingNotes}
+              onChange={(e) => setEditingNotes(e.target.value)}
+              placeholder="Add notes about this call..."
+              rows={3}
+              className="w-full bg-gray-900 border border-white/10 rounded-lg px-4 py-3 text-sm text-gray-200 focus:outline-none focus:border-red-500 transition-colors resize-none"
+            />
+          </div>
+
+          {/* Save button */}
+          {(editingName !== (selectedCall.prospect_name || '') || editingNotes !== (selectedCall.notes || '')) && (
+            <div className="mb-6">
+              <button
+                onClick={saveCallInfo}
+                disabled={saveStatus === 'saving'}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                {saveStatus === 'saving' ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          )}
+          {saveStatus === 'saved' && (
+            <p className="text-green-400 text-sm mb-6">Saved.</p>
+          )}
 
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -222,11 +293,16 @@ export default function HistoryPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-medium">
+                      {call.prospect_name ? (
+                        <span className="text-white">{call.prospect_name}</span>
+                      ) : (
+                        <span className="text-gray-500 italic">Unnamed prospect</span>
+                      )}
+                      <span className="text-gray-600 mx-2">·</span>
                       {new Date(call.started_at).toLocaleDateString('en-US', {
                         weekday: 'short',
                         month: 'short',
                         day: 'numeric',
-                        year: 'numeric',
                       })}
                       <span className="text-gray-500 ml-2">
                         {new Date(call.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

@@ -336,11 +336,18 @@ export default function CallInterface() {
       </div>
 
       {/* Mic denied error */}
-      {micStatus === 'denied' && (
+      {(micStatus === 'denied' || micStatus === 'error') && (
         <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-gray-900 border border-red-500/50 rounded-2xl p-8 max-w-md text-center">
             <h2 className="text-xl font-bold text-red-400 mb-3">Microphone Access Denied</h2>
-            <p className="text-gray-400 mb-4">Sales Coach Live needs microphone access to transcribe your call. Please allow microphone access in your browser settings and try again.</p>
+            <p className="text-gray-400 mb-4">Sales Coach Live needs microphone access to transcribe your call.</p>
+            <div className="text-left bg-gray-800 rounded-lg p-4 mb-4 text-sm text-gray-300 space-y-2">
+              <p><strong>To fix this:</strong></p>
+              <p>1. Click the <strong>lock/tune icon</strong> in your browser address bar</p>
+              <p>2. Set <strong>Microphone</strong> to <strong>Allow</strong></p>
+              <p>3. Refresh the page (Cmd+R)</p>
+              <p>4. Click START CALL again</p>
+            </div>
             <button onClick={() => setMicStatus('inactive')} className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
               Dismiss
             </button>

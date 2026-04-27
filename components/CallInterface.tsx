@@ -19,6 +19,7 @@ export default function CallInterface() {
   const [coaching, setCoaching] = useState<CoachingResponse | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
   const [micStatus, setMicStatus] = useState<'inactive' | 'active' | 'error' | 'denied'>('inactive');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [flash, setFlash] = useState<'red' | 'green' | null>(null);
   const [summary, setSummary] = useState<CallSummary | null>(null);
   const [youWordCount, setYouWordCount] = useState(0);
@@ -134,43 +135,76 @@ export default function CallInterface() {
   };
 
   const startCall = async () => {
+    setErrorMessage(null);
+
+    // Step 1: Get microphone access first
+    let audio: AudioCapture;
     try {
-      const audio = new AudioCapture();
-      const gladia = new GladiaClient(handleTranscript, (status) => {
-        if (status === 'connected') setMicStatus('active');
-        else if (status === 'error') setMicStatus('error');
-      });
-
-      await gladia.connect();
-      await audio.start((data) => gladia.sendAudio(data));
-
-      audioRef.current = audio;
-      gladiaRef.current = gladia;
-
-      setIsActive(true);
-      setStartTime(Date.now());
-      setMicStatus('active');
-      setTranscript([]);
-      setCoaching(null);
-      setYouWordCount(0);
-      setProspectWordCount(0);
-      setFillerCount(0);
-      setSentimentJourney([]);
-      setAllObjections([]);
-      setAllBuyingSignals([]);
-      setSummary(null);
-
-      // Start coaching loop
-      coachTimerRef.current = setInterval(fetchCoaching, COACHING_INTERVAL);
+      audio = new AudioCapture();
+      // Test mic access before doing anything else
+      await audio.testAccess();
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
       if (msg === 'MICROPHONE_DENIED') {
         setMicStatus('denied');
+        setErrorMessage('Microphone access was denied. Please allow microphone access in your browser settings.');
       } else {
         setMicStatus('error');
+        setErrorMessage(`Microphone error: ${msg || 'Could not access microphone'}`);
       }
-      console.error('Failed to start call:', err);
+      console.error('Mic access failed:', err);
+      return;
     }
+
+    // Step 2: Connect to Gladia
+    let gladia: GladiaClient;
+    try {
+      gladia = new GladiaClient(handleTranscript, (status) => {
+        if (status === 'connected') setMicStatus('active');
+        else if (status === 'error') {
+          setErrorMessage('Transcription connection lost. Try stopping and restarting the call.');
+        }
+      });
+      await gladia.connect();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      audio.stop();
+      setMicStatus('error');
+      setErrorMessage(`Transcription service error: ${msg}. Check that your Gladia API key is valid.`);
+      console.error('Gladia connection failed:', err);
+      return;
+    }
+
+    // Step 3: Start streaming audio to Gladia
+    try {
+      await audio.start((data) => gladia.sendAudio(data));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      gladia.disconnect();
+      setMicStatus('error');
+      setErrorMessage(`Audio streaming error: ${msg}`);
+      console.error('Audio start failed:', err);
+      return;
+    }
+
+    audioRef.current = audio;
+    gladiaRef.current = gladia;
+
+    setIsActive(true);
+    setStartTime(Date.now());
+    setMicStatus('active');
+    setTranscript([]);
+    setCoaching(null);
+    setYouWordCount(0);
+    setProspectWordCount(0);
+    setFillerCount(0);
+    setSentimentJourney([]);
+    setAllObjections([]);
+    setAllBuyingSignals([]);
+    setSummary(null);
+
+    // Start coaching loop
+    coachTimerRef.current = setInterval(fetchCoaching, COACHING_INTERVAL);
   };
 
   const stopCall = () => {
@@ -335,20 +369,26 @@ export default function CallInterface() {
         <CoachPanel coaching={coaching} isLoading={coachLoading} />
       </div>
 
-      {/* Mic denied error */}
-      {(micStatus === 'denied' || micStatus === 'error') && (
+      {/* Error overlay */}
+      {(micStatus === 'denied' || micStatus === 'error') && errorMessage && (
         <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
           <div className="bg-gray-900 border border-red-500/50 rounded-2xl p-8 max-w-md text-center">
-            <h2 className="text-xl font-bold text-red-400 mb-3">Microphone Access Denied</h2>
-            <p className="text-gray-400 mb-4">Sales Coach Live needs microphone access to transcribe your call.</p>
-            <div className="text-left bg-gray-800 rounded-lg p-4 mb-4 text-sm text-gray-300 space-y-2">
-              <p><strong>To fix this:</strong></p>
-              <p>1. Click the <strong>lock/tune icon</strong> in your browser address bar</p>
-              <p>2. Set <strong>Microphone</strong> to <strong>Allow</strong></p>
-              <p>3. Refresh the page (Cmd+R)</p>
-              <p>4. Click START CALL again</p>
-            </div>
-            <button onClick={() => setMicStatus('inactive')} className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+            <h2 className="text-xl font-bold text-red-400 mb-3">
+              {micStatus === 'denied' ? 'Microphone Access Denied' : 'Connection Error'}
+            </h2>
+            <p className="text-yellow-300 bg-yellow-900/30 rounded-lg p-3 mb-4 text-sm font-mono break-all">
+              {errorMessage}
+            </p>
+            {micStatus === 'denied' && (
+              <div className="text-left bg-gray-800 rounded-lg p-4 mb-4 text-sm text-gray-300 space-y-2">
+                <p><strong>To fix this:</strong></p>
+                <p>1. Click the <strong>lock/tune icon</strong> in your browser address bar</p>
+                <p>2. Set <strong>Microphone</strong> to <strong>Allow</strong></p>
+                <p>3. Refresh the page (Cmd+R)</p>
+                <p>4. Click START CALL again</p>
+              </div>
+            )}
+            <button onClick={() => { setMicStatus('inactive'); setErrorMessage(null); }} className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
               Dismiss
             </button>
           </div>

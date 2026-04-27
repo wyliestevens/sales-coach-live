@@ -8,11 +8,9 @@ export class AudioCapture {
   private source: MediaStreamAudioSourceNode | null = null;
   private onAudioData: ((data: ArrayBuffer) => void) | null = null;
 
-  async start(onAudioData: (data: ArrayBuffer) => void): Promise<void> {
-    this.onAudioData = onAudioData;
-
+  async testAccess(): Promise<void> {
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      const testStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           sampleRate: SAMPLE_RATE,
@@ -21,11 +19,40 @@ export class AudioCapture {
           autoGainControl: true,
         },
       });
+      // Save the stream so we can reuse it in start()
+      this.stream = testStream;
     } catch (err) {
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
         throw new Error('MICROPHONE_DENIED');
       }
-      throw new Error('MICROPHONE_UNAVAILABLE');
+      if (err instanceof DOMException && err.name === 'NotFoundError') {
+        throw new Error('No microphone found. Please connect a microphone and try again.');
+      }
+      throw new Error(`MICROPHONE_UNAVAILABLE: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async start(onAudioData: (data: ArrayBuffer) => void): Promise<void> {
+    this.onAudioData = onAudioData;
+
+    // If we don't already have a stream from testAccess(), get one now
+    if (!this.stream) {
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            sampleRate: SAMPLE_RATE,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'NotAllowedError') {
+          throw new Error('MICROPHONE_DENIED');
+        }
+        throw new Error('MICROPHONE_UNAVAILABLE');
+      }
     }
 
     this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });

@@ -25,9 +25,15 @@ export async function POST() {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Gladia session error:', errorText);
-      return NextResponse.json({ error: 'Failed to create Gladia session' }, { status: 502 });
+      let detail = 'Failed to create Gladia session';
+      try {
+        const errorData = await response.json();
+        detail = errorData.message || detail;
+      } catch {
+        detail = await response.text().catch(() => detail);
+      }
+      console.error('Gladia session error:', detail);
+      return NextResponse.json({ error: detail }, { status: response.status });
     }
 
     const data = await response.json();

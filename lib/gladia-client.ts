@@ -22,7 +22,12 @@ export class GladiaClient {
     const res = await fetch('/api/gladia-session', { method: 'POST' });
     if (!res.ok) {
       this.onStatus('error');
-      throw new Error('Failed to create Gladia session');
+      let detail = 'Failed to create Gladia session';
+      try {
+        const errData = await res.json();
+        detail = errData.error || detail;
+      } catch { /* ignore */ }
+      throw new Error(detail);
     }
 
     const { url } = await res.json();

@@ -69,6 +69,10 @@ export class AudioCapture {
     this.processor.connect(this.audioContext.destination);
   }
 
+  getStream(): MediaStream | null {
+    return this.stream;
+  }
+
   stop(): void {
     this.processor?.disconnect();
     this.source?.disconnect();

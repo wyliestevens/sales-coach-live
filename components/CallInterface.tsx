@@ -3,10 +3,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { TranscriptEntry, CoachingResponse, CallSummary } from '@/types';
 import { AudioCapture } from '@/lib/audio-capture';
+import { AudioRecorder } from '@/lib/audio-recorder';
 import { GladiaClient } from '@/lib/gladia-client';
 import TranscriptPanel from './TranscriptPanel';
 import CoachPanel from './CoachPanel';
 import TalkRatioMeter from './TalkRatioMeter';
+import Link from 'next/link';
 
 const FILLER_WORDS = ['um', 'uh', 'like', 'you know', 'basically', 'actually', 'literally', 'right'];
 const COACHING_INTERVAL = 3000;
@@ -22,6 +24,7 @@ export default function CallInterface() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [flash, setFlash] = useState<'red' | 'green' | null>(null);
   const [summary, setSummary] = useState<CallSummary | null>(null);
+  const [saving, setSaving] = useState(false);
   const [youWordCount, setYouWordCount] = useState(0);
   const [prospectWordCount, setProspectWordCount] = useState(0);
   const [fillerCount, setFillerCount] = useState(0);
@@ -30,17 +33,17 @@ export default function CallInterface() {
   const [allBuyingSignals, setAllBuyingSignals] = useState<string[]>([]);
 
   const audioRef = useRef<AudioCapture | null>(null);
+  const recorderRef = useRef<AudioRecorder | null>(null);
   const gladiaRef = useRef<GladiaClient | null>(null);
   const coachTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastCoachRef = useRef<string>('');
   const transcriptRef = useRef<TranscriptEntry[]>([]);
+  const callStartTimeRef = useRef<string>('');
 
-  // Keep transcriptRef in sync
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
 
-  // Duration timer
   useEffect(() => {
     if (!isActive || !startTime) return;
     const timer = setInterval(() => {
@@ -51,17 +54,11 @@ export default function CallInterface() {
 
   const handleTranscript = useCallback((entry: TranscriptEntry) => {
     setTranscript((prev) => {
-      // Replace partial with final for same speaker
       if (entry.isFinal) {
-        const filtered = prev.filter(
-          (e) => e.isFinal || e.speaker !== entry.speaker
-        );
+        const filtered = prev.filter((e) => e.isFinal || e.speaker !== entry.speaker);
         return [...filtered, entry];
       }
-      // Replace existing partial
-      const filtered = prev.filter(
-        (e) => e.isFinal || e.speaker !== entry.speaker
-      );
+      const filtered = prev.filter((e) => e.isFinal || e.speaker !== entry.speaker);
       return [...filtered, entry];
     });
 
@@ -72,7 +69,6 @@ export default function CallInterface() {
       } else {
         setProspectWordCount((c) => c + words);
       }
-      // Count filler words
       const lower = entry.text.toLowerCase();
       const fillers = FILLER_WORDS.reduce((count, fw) => {
         const regex = new RegExp(`\\b${fw}\\b`, 'gi');
@@ -104,7 +100,6 @@ export default function CallInterface() {
         const data: CoachingResponse = await res.json();
         setCoaching(data);
 
-        // Track sentiment journey
         setSentimentJourney((prev) => {
           if (prev[prev.length - 1] !== data.sentiment) {
             return [...prev, data.sentiment];
@@ -112,7 +107,6 @@ export default function CallInterface() {
           return prev;
         });
 
-        // Track objections and buying signals
         if (data.objections?.length > 0) {
           setAllObjections((prev) => [...new Set([...prev, ...data.objections])]);
           triggerFlash('red');
@@ -137,11 +131,9 @@ export default function CallInterface() {
   const startCall = async () => {
     setErrorMessage(null);
 
-    // Step 1: Get microphone access first
     let audio: AudioCapture;
     try {
       audio = new AudioCapture();
-      // Test mic access before doing anything else
       await audio.testAccess();
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
@@ -152,11 +144,9 @@ export default function CallInterface() {
         setMicStatus('error');
         setErrorMessage(`Microphone error: ${msg || 'Could not access microphone'}`);
       }
-      console.error('Mic access failed:', err);
       return;
     }
 
-    // Step 2: Connect to Gladia
     let gladia: GladiaClient;
     try {
       gladia = new GladiaClient(handleTranscript, (status) => {
@@ -171,11 +161,9 @@ export default function CallInterface() {
       audio.stop();
       setMicStatus('error');
       setErrorMessage(`Transcription service error: ${msg}. Check that your Gladia API key is valid.`);
-      console.error('Gladia connection failed:', err);
       return;
     }
 
-    // Step 3: Start streaming audio to Gladia
     try {
       await audio.start((data) => gladia.sendAudio(data));
     } catch (err) {
@@ -183,12 +171,20 @@ export default function CallInterface() {
       gladia.disconnect();
       setMicStatus('error');
       setErrorMessage(`Audio streaming error: ${msg}`);
-      console.error('Audio start failed:', err);
       return;
     }
 
+    // Start audio recording
+    const recorder = new AudioRecorder();
+    const stream = audio.getStream();
+    if (stream) {
+      recorder.start(stream);
+    }
+
     audioRef.current = audio;
+    recorderRef.current = recorder;
     gladiaRef.current = gladia;
+    callStartTimeRef.current = new Date().toISOString();
 
     setIsActive(true);
     setStartTime(Date.now());
@@ -203,16 +199,19 @@ export default function CallInterface() {
     setAllBuyingSignals([]);
     setSummary(null);
 
-    // Start coaching loop
     coachTimerRef.current = setInterval(fetchCoaching, COACHING_INTERVAL);
   };
 
-  const stopCall = () => {
+  const stopCall = async () => {
+    // Stop recording and get the audio blob
+    const audioBlob = recorderRef.current ? await recorderRef.current.stop() : null;
+
     audioRef.current?.stop();
     gladiaRef.current?.disconnect();
     if (coachTimerRef.current) clearInterval(coachTimerRef.current);
 
     audioRef.current = null;
+    recorderRef.current = null;
     gladiaRef.current = null;
     coachTimerRef.current = null;
 
@@ -221,7 +220,7 @@ export default function CallInterface() {
     const prospectPct = totalWords > 0 ? 100 - youPct : 50;
 
     const callSummary: CallSummary = {
-      date: new Date().toISOString(),
+      date: callStartTimeRef.current || new Date().toISOString(),
       duration,
       talkRatio: { you: youPct, prospect: prospectPct },
       sentimentJourney,
@@ -230,18 +229,47 @@ export default function CallInterface() {
       transcript,
     };
 
-    // Save to localStorage
-    try {
-      const existing = JSON.parse(localStorage.getItem('call-history') ?? '[]');
-      existing.push(callSummary);
-      localStorage.setItem('call-history', JSON.stringify(existing));
-    } catch {
-      // Storage full or unavailable
-    }
-
     setSummary(callSummary);
     setIsActive(false);
     setMicStatus('inactive');
+
+    // Save to server
+    setSaving(true);
+    try {
+      // Upload audio if we have a recording
+      let audioUrl: string | null = null;
+      if (audioBlob && audioBlob.size > 0) {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        const uploadRes = await fetch('/api/calls/upload', { method: 'POST', body: formData });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          audioUrl = uploadData.url;
+        }
+      }
+
+      // Save call data
+      await fetch('/api/calls/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startedAt: callSummary.date,
+          duration: callSummary.duration,
+          talkRatioYou: youPct,
+          talkRatioProspect: prospectPct,
+          fillerWords: fillerCount,
+          transcript: transcript.filter((e) => e.isFinal),
+          sentimentJourney,
+          objections: allObjections,
+          buyingSignals: allBuyingSignals,
+          audioUrl,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to save call:', err);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const downloadTranscript = () => {
@@ -272,8 +300,10 @@ export default function CallInterface() {
   // Summary screen
   if (summary) {
     return (
-      <div className="h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-8">
-        <h1 className="text-3xl font-bold mb-8">Call Summary</h1>
+      <div className="h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-8 overflow-y-auto">
+        <h1 className="text-3xl font-bold mb-2">Call Summary</h1>
+        {saving && <p className="text-yellow-400 text-sm mb-4">Saving call data...</p>}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 max-w-4xl w-full">
           <StatCard label="Duration" value={formatTime(summary.duration)} />
           <StatCard label="Your Talk %" value={`${summary.talkRatio.you}%`} />
@@ -318,7 +348,10 @@ export default function CallInterface() {
           <button onClick={downloadTranscript} className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors">
             Download Transcript
           </button>
-          <button onClick={() => setSummary(null)} className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors">
+          <Link href="/history" className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-medium transition-colors">
+            Call History
+          </Link>
+          <button onClick={() => setSummary(null)} className="px-6 py-3 bg-red-600 hover:bg-red-500 rounded-lg font-medium transition-colors">
             New Call
           </button>
         </div>
@@ -330,10 +363,16 @@ export default function CallInterface() {
     <div className="h-screen bg-gray-950 text-white flex flex-col">
       {/* Header bar */}
       <div className="flex items-center justify-between px-6 py-3 bg-gray-900 border-b border-white/10">
-        <h1 className="text-lg font-bold text-red-500 tracking-wide">Sales Coach Live</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-lg font-bold text-red-500 tracking-wide">Sales Coach Live</h1>
+          <Link href="/history" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+            History
+          </Link>
+        </div>
         <div className="flex items-center gap-4">
           {isActive && (
             <>
+              <span className="text-xs text-red-400 animate-pulse">REC</span>
               <span className="text-sm text-gray-400 font-mono">{formatTime(duration)}</span>
               <MicIndicator status={micStatus} />
               <button onClick={stopCall} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-sm font-bold rounded-lg transition-colors">
@@ -349,12 +388,10 @@ export default function CallInterface() {
         </div>
       </div>
 
-      {/* Transcript panel - 40% */}
       <div className="h-[40%] border-b border-white/10 overflow-hidden">
         <TranscriptPanel entries={transcript} sentiment={coaching?.sentiment ?? null} flash={flash} />
       </div>
 
-      {/* Talk ratio meter - 15% */}
       <div className="h-[15%] flex items-center">
         <TalkRatioMeter
           youPercent={youPercent}
@@ -364,7 +401,6 @@ export default function CallInterface() {
         />
       </div>
 
-      {/* Coach panel - 45% */}
       <div className="h-[45%] bg-gray-950 border-t border-white/10 overflow-hidden">
         <CoachPanel coaching={coaching} isLoading={coachLoading} />
       </div>

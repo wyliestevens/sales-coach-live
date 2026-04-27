@@ -1,4 +1,5 @@
 import StartCallButton from '@/components/StartCallButton';
+import Link from 'next/link';
 
 export default function Home() {
   return (
@@ -11,7 +12,15 @@ export default function Home() {
           Real-time AI coaching from the world&apos;s greatest closers.
         </p>
         <StartCallButton />
-        <div className="flex items-center gap-6 justify-center text-xs text-gray-700 pt-8">
+        <div className="flex items-center gap-6 justify-center pt-4">
+          <Link href="/history" className="text-sm text-gray-500 hover:text-gray-300 transition-colors">
+            Call History
+          </Link>
+          <Link href="/login" className="text-sm text-gray-500 hover:text-gray-300 transition-colors">
+            Sign In
+          </Link>
+        </div>
+        <div className="flex items-center gap-6 justify-center text-xs text-gray-700 pt-4">
           <span>Powered by Claude AI</span>
           <span>&bull;</span>
           <span>Gladia Transcription</span>

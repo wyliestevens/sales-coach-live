@@ -16,9 +16,10 @@ export async function POST(request: NextRequest) {
     const coaching = await getCoaching(transcript);
     return NextResponse.json(coaching);
   } catch (error) {
-    console.error('Coach API error:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Coach API error:', message);
     return NextResponse.json(
-      { error: 'Failed to get coaching response' },
+      { error: `Coach error: ${message}` },
       { status: 500 }
     );
   }

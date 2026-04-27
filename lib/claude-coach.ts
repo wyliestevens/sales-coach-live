@@ -6,7 +6,7 @@ const anthropic = new Anthropic();
 
 export async function getCoaching(transcript: string): Promise<CoachingResponse> {
   const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 500,
     temperature: 0.7,
     system: SALES_SYSTEM_PROMPT,

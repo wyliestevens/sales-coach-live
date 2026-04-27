@@ -67,6 +67,7 @@ export class GladiaClient {
 
   sendAudio(audioData: ArrayBuffer): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      // Gladia v2 accepts raw binary PCM directly
       this.ws.send(audioData);
     }
   }
@@ -74,21 +75,31 @@ export class GladiaClient {
   disconnect(): void {
     this.maxReconnects = 0; // Prevent reconnection
     if (this.ws) {
+      // Send stop_recording to properly close the Gladia session
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'stop_recording' }));
+      }
       this.ws.close();
       this.ws = null;
     }
   }
 
   private handleMessage(data: Record<string, unknown>): void {
-    // Handle Gladia v2 live transcription events
     const type = data.type as string | undefined;
 
-    if (type === 'transcript' || type === 'final_transcript' || type === 'partial_transcript') {
-      const text = (data.transcription as string) || (data.text as string) || '';
-      if (!text.trim()) return;
+    // Gladia v2 format: { type: "transcript", data: { is_final: bool, utterance: { text, channel, ... } } }
+    if (type === 'transcript') {
+      const payload = data.data as Record<string, unknown> | undefined;
+      if (!payload) return;
 
-      const isFinal = type === 'transcript' || type === 'final_transcript' || (data.is_final as boolean) === true;
-      const channel = (data.channel as number) ?? 0;
+      const isFinal = payload.is_final === true;
+      const utterance = payload.utterance as Record<string, unknown> | undefined;
+      if (!utterance) return;
+
+      const text = utterance.text as string;
+      if (!text?.trim()) return;
+
+      const channel = (utterance.channel as number) ?? 0;
 
       const entry: TranscriptEntry = {
         id: `t-${this.entryId++}`,

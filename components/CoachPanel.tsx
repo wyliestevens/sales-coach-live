@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState, useRef } from 'react';
 import { CoachingResponse } from '@/types';
 
 interface CoachPanelProps {
@@ -8,6 +9,26 @@ interface CoachPanelProps {
 }
 
 export default function CoachPanel({ coaching, isLoading }: CoachPanelProps) {
+  const [displayedLine, setDisplayedLine] = useState('');
+  const [displayedTactic, setDisplayedTactic] = useState('');
+  const [visible, setVisible] = useState(true);
+  const prevLineRef = useRef('');
+
+  // Fade out, swap text, fade in when nextLine changes
+  useEffect(() => {
+    const newLine = coaching?.nextLine ?? '';
+    if (newLine && newLine !== prevLineRef.current) {
+      setVisible(false); // fade out
+      const timer = setTimeout(() => {
+        setDisplayedLine(newLine);
+        setDisplayedTactic(coaching?.tactic ?? '');
+        prevLineRef.current = newLine;
+        setVisible(true); // fade in
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [coaching?.nextLine, coaching?.tactic]);
+
   if (!coaching && !isLoading) {
     return (
       <div className="flex items-center justify-center h-full text-gray-600">
@@ -18,36 +39,31 @@ export default function CoachPanel({ coaching, isLoading }: CoachPanelProps) {
 
   return (
     <div className="flex flex-col h-full px-6 py-4 gap-4">
-      {/* Main suggestion - large font */}
+      {/* Main suggestion - large font with fade transition */}
       <div className="flex-1 flex items-center justify-center">
-        <p className={`text-2xl md:text-[28px] font-bold leading-snug text-center max-w-3xl transition-opacity duration-300 ${isLoading && !coaching ? 'opacity-50' : ''}`}>
-          {coaching?.nextLine ?? 'Analyzing conversation...'}
-        </p>
+        <div className={`text-center max-w-3xl transition-opacity duration-500 ease-in-out ${visible ? 'opacity-100' : 'opacity-0'}`}>
+          <p className="text-2xl md:text-[28px] font-bold leading-snug">
+            {displayedLine || 'Analyzing conversation...'}
+          </p>
+          {displayedTactic && (
+            <p className="text-sm text-cyan-400 mt-3">{displayedTactic}</p>
+          )}
+        </div>
       </div>
 
-      {/* Bottom info bar */}
+      {/* Bottom info bar - current signals from this coaching cycle */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
-        {/* Tactic */}
-        {coaching?.tactic && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 uppercase tracking-wider">Tactic:</span>
-            <span className="text-sm text-cyan-400 font-medium">{coaching.tactic}</span>
-          </div>
-        )}
-
-        {/* Buying signals */}
         {coaching?.buyingSignals && coaching.buyingSignals.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-green-500 uppercase tracking-wider">Buying Signals:</span>
-            <span className="text-sm text-green-300">{coaching.buyingSignals.join(' | ')}</span>
+            <span className="text-xs text-green-500 uppercase tracking-wider">Signal:</span>
+            <span className="text-sm text-green-300">{coaching.buyingSignals[0]}</span>
           </div>
         )}
 
-        {/* Objections */}
         {coaching?.objections && coaching.objections.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-red-500 uppercase tracking-wider">Objections:</span>
-            <span className="text-sm text-red-300">{coaching.objections.join(' | ')}</span>
+            <span className="text-xs text-red-500 uppercase tracking-wider">Objection:</span>
+            <span className="text-sm text-red-300">{coaching.objections[0]}</span>
           </div>
         )}
       </div>

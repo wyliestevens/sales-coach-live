@@ -11,7 +11,23 @@ import TalkRatioMeter from './TalkRatioMeter';
 import Link from 'next/link';
 
 const FILLER_WORDS = ['um', 'uh', 'like', 'you know', 'basically', 'actually', 'literally', 'right'];
-const COACHING_INTERVAL = 3000;
+const COACHING_INTERVAL = 6000;
+
+// Fuzzy dedup: only add if no existing item shares 60%+ of the same words
+function addUnique(existing: string[], newItems: string[]): string[] {
+  const result = [...existing];
+  for (const item of newItems) {
+    const itemWords = new Set(item.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/));
+    const isDuplicate = result.some((e) => {
+      const existingWords = new Set(e.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/));
+      const overlap = [...itemWords].filter((w) => existingWords.has(w)).length;
+      const smaller = Math.min(itemWords.size, existingWords.size);
+      return smaller > 0 && overlap / smaller > 0.6;
+    });
+    if (!isDuplicate) result.push(item);
+  }
+  return result;
+}
 
 export default function CallInterface() {
   const [isActive, setIsActive] = useState(false);
@@ -108,11 +124,11 @@ export default function CallInterface() {
         });
 
         if (data.objections?.length > 0) {
-          setAllObjections((prev) => [...new Set([...prev, ...data.objections])]);
+          setAllObjections((prev) => addUnique(prev, data.objections));
           triggerFlash('red');
         }
         if (data.buyingSignals?.length > 0) {
-          setAllBuyingSignals((prev) => [...new Set([...prev, ...data.buyingSignals])]);
+          setAllBuyingSignals((prev) => addUnique(prev, data.buyingSignals));
           triggerFlash('green');
         }
       }
@@ -299,50 +315,72 @@ export default function CallInterface() {
 
   // Summary screen
   if (summary) {
+    const talkVerdict = summary.talkRatio.you > 60
+      ? 'You talked too much — aim for 40% or less.'
+      : summary.talkRatio.you < 30
+        ? 'Great listening — you let the prospect do the talking.'
+        : 'Good balance between talking and listening.';
+
     return (
-      <div className="h-screen bg-gray-950 text-white flex flex-col items-center justify-center p-8 overflow-y-auto">
+      <div className="h-screen bg-gray-950 text-white flex flex-col items-center p-8 overflow-y-auto">
         <h1 className="text-3xl font-bold mb-2">Call Summary</h1>
         {saving && <p className="text-yellow-400 text-sm mb-4">Saving call data...</p>}
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 max-w-4xl w-full">
+        {/* Stats row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 max-w-4xl w-full">
           <StatCard label="Duration" value={formatTime(summary.duration)} />
-          <StatCard label="Your Talk %" value={`${summary.talkRatio.you}%`} />
-          <StatCard label="Prospect Talk %" value={`${summary.talkRatio.prospect}%`} />
-          <StatCard label="Objections" value={String(summary.objections.length)} />
+          <StatCard label="You Talked" value={`${summary.talkRatio.you}%`} />
+          <StatCard label="Prospect Talked" value={`${summary.talkRatio.prospect}%`} />
+          <StatCard label="Buying Signals" value={String(summary.buyingSignals.length)} />
         </div>
 
+        {/* Talk ratio verdict */}
+        <p className="text-sm text-gray-400 mb-6 max-w-4xl w-full">{talkVerdict}</p>
+
+        {/* Sentiment journey */}
         {summary.sentimentJourney.length > 0 && (
           <div className="mb-6 max-w-4xl w-full">
-            <h3 className="text-sm text-gray-500 uppercase tracking-wider mb-2">Sentiment Journey</h3>
-            <div className="flex flex-wrap gap-2">
+            <h3 className="text-sm text-gray-500 uppercase tracking-wider mb-2">Prospect Mood</h3>
+            <div className="flex flex-wrap items-center gap-1">
               {summary.sentimentJourney.map((s, i) => (
-                <span key={i} className="px-3 py-1 bg-gray-800 rounded-full text-sm text-gray-300">{s}</span>
+                <span key={i} className="flex items-center">
+                  {i > 0 && <span className="text-gray-700 mx-1">&rarr;</span>}
+                  <span className="px-3 py-1 bg-gray-800 rounded-full text-sm text-gray-300">{s}</span>
+                </span>
               ))}
             </div>
           </div>
         )}
 
-        {summary.objections.length > 0 && (
-          <div className="mb-6 max-w-4xl w-full">
-            <h3 className="text-sm text-red-500 uppercase tracking-wider mb-2">Objections Raised</h3>
-            <ul className="space-y-1">
-              {summary.objections.map((o, i) => (
-                <li key={i} className="text-sm text-red-300">- {o}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {summary.buyingSignals.length > 0 && (
-          <div className="mb-6 max-w-4xl w-full">
-            <h3 className="text-sm text-green-500 uppercase tracking-wider mb-2">Buying Signals</h3>
-            <ul className="space-y-1">
-              {summary.buyingSignals.map((s, i) => (
-                <li key={i} className="text-sm text-green-300">- {s}</li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {/* Key Insights - combined, capped */}
+        <div className="grid md:grid-cols-2 gap-6 mb-6 max-w-4xl w-full">
+          {summary.buyingSignals.length > 0 && (
+            <div className="bg-green-950/30 border border-green-800/30 rounded-xl p-4">
+              <h3 className="text-sm text-green-400 font-semibold uppercase tracking-wider mb-3">Buying Signals Detected</h3>
+              <ul className="space-y-2">
+                {summary.buyingSignals.slice(0, 8).map((s, i) => (
+                  <li key={i} className="flex gap-2 text-sm text-green-200">
+                    <span className="text-green-500 shrink-0">+</span>
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {summary.objections.length > 0 && (
+            <div className="bg-red-950/30 border border-red-800/30 rounded-xl p-4">
+              <h3 className="text-sm text-red-400 font-semibold uppercase tracking-wider mb-3">Objections Raised</h3>
+              <ul className="space-y-2">
+                {summary.objections.slice(0, 8).map((o, i) => (
+                  <li key={i} className="flex gap-2 text-sm text-red-200">
+                    <span className="text-red-500 shrink-0">!</span>
+                    <span>{o}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
 
         <div className="flex gap-4 mt-4">
           <button onClick={downloadTranscript} className="px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg font-medium transition-colors">

@@ -47,6 +47,11 @@ export default function CallInterface() {
   const [sentimentJourney, setSentimentJourney] = useState<string[]>([]);
   const [allObjections, setAllObjections] = useState<string[]>([]);
   const [allBuyingSignals, setAllBuyingSignals] = useState<string[]>([]);
+  const [showProspectModal, setShowProspectModal] = useState(false);
+  const [prospectName, setProspectName] = useState('');
+  const [prospectIndustryRole, setProspectIndustryRole] = useState('');
+  const [customIndustry, setCustomIndustry] = useState('');
+  const prospectContextRef = useRef<{ name: string; industryRole: string } | null>(null);
 
   const audioRef = useRef<AudioCapture | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
@@ -110,7 +115,10 @@ export default function CallInterface() {
       const res = await fetch('/api/coach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: recent }),
+        body: JSON.stringify({
+          transcript: recent,
+          prospectContext: prospectContextRef.current || undefined,
+        }),
       });
       if (res.ok) {
         const data: CoachingResponse = await res.json();
@@ -142,6 +150,22 @@ export default function CallInterface() {
   const triggerFlash = (color: 'red' | 'green') => {
     setFlash(color);
     setTimeout(() => setFlash(null), 800);
+  };
+
+  const handleStartClick = () => {
+    setShowProspectModal(true);
+  };
+
+  const handleProspectSubmit = () => {
+    const name = prospectName.trim();
+    const industry = prospectIndustryRole === 'Other' ? customIndustry.trim() : prospectIndustryRole.trim();
+    if (industry) {
+      prospectContextRef.current = { name: name || 'Unknown', industryRole: industry };
+    } else {
+      prospectContextRef.current = null;
+    }
+    setShowProspectModal(false);
+    startCall();
   };
 
   const startCall = async () => {
@@ -279,6 +303,7 @@ export default function CallInterface() {
           objections: allObjections,
           buyingSignals: allBuyingSignals,
           audioUrl,
+          prospectName: prospectContextRef.current?.name || undefined,
         }),
       });
     } catch (err) {
@@ -419,7 +444,7 @@ export default function CallInterface() {
             </>
           )}
           {!isActive && (
-            <button onClick={startCall} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-sm font-bold rounded-lg transition-colors">
+            <button onClick={handleStartClick} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-sm font-bold rounded-lg transition-colors">
               START CALL
             </button>
           )}
@@ -465,6 +490,90 @@ export default function CallInterface() {
             <button onClick={() => { setMicStatus('inactive'); setErrorMessage(null); }} className="px-6 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
               Dismiss
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Prospect info modal */}
+      {showProspectModal && (
+        <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-white/10 rounded-2xl p-8 max-w-md w-full mx-4">
+            <h2 className="text-xl font-bold text-white mb-1">What industry is this call for?</h2>
+            <p className="text-sm text-gray-400 mb-6">The AI will tailor coaching to this industry&apos;s language, pain points, and objections.</p>
+
+            <label className="block text-sm text-gray-400 mb-1">Industry</label>
+            <select
+              value={prospectIndustryRole}
+              onChange={(e) => setProspectIndustryRole(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-red-500 mb-4 appearance-none"
+              autoFocus
+            >
+              <option value="">Select an industry...</option>
+              <option value="Personal Injury Attorney">Personal Injury Attorney</option>
+              <option value="Family Law Attorney">Family Law Attorney</option>
+              <option value="Criminal Defense Attorney">Criminal Defense Attorney</option>
+              <option value="Real Estate Agent">Real Estate Agent</option>
+              <option value="Insurance Agent">Insurance Agent</option>
+              <option value="Roofing / Home Services">Roofing / Home Services</option>
+              <option value="HVAC / Plumbing">HVAC / Plumbing</option>
+              <option value="Dental Practice">Dental Practice</option>
+              <option value="Medical Practice">Medical Practice</option>
+              <option value="Chiropractic / Physical Therapy">Chiropractic / Physical Therapy</option>
+              <option value="SaaS / Technology">SaaS / Technology</option>
+              <option value="Marketing Agency">Marketing Agency</option>
+              <option value="Financial Services / Wealth Management">Financial Services / Wealth Management</option>
+              <option value="Automotive Dealership">Automotive Dealership</option>
+              <option value="Restaurant / Hospitality">Restaurant / Hospitality</option>
+              <option value="E-commerce / Retail">E-commerce / Retail</option>
+              <option value="Construction / General Contractor">Construction / General Contractor</option>
+              <option value="Fitness / Gym / Wellness">Fitness / Gym / Wellness</option>
+              <option value="Education / Coaching">Education / Coaching</option>
+              <option value="Other">Other</option>
+            </select>
+
+            {prospectIndustryRole === 'Other' && (
+              <>
+                <label className="block text-sm text-gray-400 mb-1">Specify Industry</label>
+                <input
+                  type="text"
+                  value={customIndustry}
+                  onChange={(e) => setCustomIndustry(e.target.value)}
+                  placeholder="e.g. Solar installation, Pet grooming"
+                  className="w-full px-4 py-3 bg-gray-800 border border-white/10 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-red-500 mb-4"
+                />
+              </>
+            )}
+
+            <label className="block text-sm text-gray-400 mb-1">Prospect Name <span className="text-gray-600">(optional)</span></label>
+            <input
+              type="text"
+              value={prospectName}
+              onChange={(e) => setProspectName(e.target.value)}
+              placeholder="e.g. John Smith"
+              className="w-full px-4 py-3 bg-gray-800 border border-white/10 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-red-500 mb-6"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleProspectSubmit();
+                }
+              }}
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleProspectSubmit}
+                disabled={!prospectIndustryRole}
+                className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold rounded-lg transition-colors"
+              >
+                START CALL
+              </button>
+              <button
+                onClick={() => setShowProspectModal(false)}
+                className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -20,9 +20,17 @@ export default function CoachPanel({ coaching, isLoading }: CoachPanelProps) {
   const [current, setCurrent] = useState<QueuedSuggestion | null>(null);
   const [queue, setQueue] = useState<QueuedSuggestion[]>([]);
   const [visible, setVisible] = useState(true);
+  const [paused, setPaused] = useState(false);
   const prevLineRef = useRef('');
+  const autoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queueRef = useRef<QueuedSuggestion[]>([]);
 
-  // When new coaching arrives, queue it instead of auto-displaying
+  // Keep queueRef in sync
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+
+  // When new coaching arrives, queue it — but show emergent items immediately
   useEffect(() => {
     const newLine = coaching?.nextLine ?? '';
     if (!newLine || newLine === prevLineRef.current) return;
@@ -36,9 +44,19 @@ export default function CoachPanel({ coaching, isLoading }: CoachPanelProps) {
       objection: coaching?.objections?.[0],
     };
 
-    // If nothing is displayed yet, show it immediately
-    if (!current) {
-      setCurrent(suggestion);
+    const isEmergent = !!(coaching?.warning || (coaching?.objections && coaching.objections.length > 0));
+
+    // If nothing is displayed yet OR this is emergent, show immediately
+    if (!current || isEmergent) {
+      // Push current to front of queue if replacing it with an emergent suggestion
+      if (current && isEmergent) {
+        setQueue((prev) => [current, ...prev]);
+      }
+      setVisible(false);
+      setTimeout(() => {
+        setCurrent(suggestion);
+        setVisible(true);
+      }, 200);
     } else {
       // Add to queue
       setQueue((prev) => [...prev, suggestion]);
@@ -46,15 +64,36 @@ export default function CoachPanel({ coaching, isLoading }: CoachPanelProps) {
   }, [coaching?.nextLine, coaching?.tactic, coaching?.warning, coaching?.buyingSignals, coaching?.objections, current]);
 
   const showNext = useCallback(() => {
-    if (queue.length === 0) return;
+    if (queueRef.current.length === 0) return;
     setVisible(false);
     setTimeout(() => {
-      const [next, ...rest] = queue;
-      setCurrent(next);
-      setQueue(rest);
+      setQueue((prev) => {
+        const [next, ...rest] = prev;
+        if (next) setCurrent(next);
+        return rest;
+      });
       setVisible(true);
     }, 300);
-  }, [queue]);
+  }, []);
+
+  // Auto-cycle every 30 seconds when not paused
+  useEffect(() => {
+    if (paused) {
+      if (autoTimerRef.current) {
+        clearInterval(autoTimerRef.current);
+        autoTimerRef.current = null;
+      }
+      return;
+    }
+    autoTimerRef.current = setInterval(() => {
+      if (queueRef.current.length > 0) {
+        showNext();
+      }
+    }, 30000);
+    return () => {
+      if (autoTimerRef.current) clearInterval(autoTimerRef.current);
+    };
+  }, [paused, showNext]);
 
   if (!coaching && !isLoading && !current) {
     return (
@@ -104,16 +143,24 @@ export default function CoachPanel({ coaching, isLoading }: CoachPanelProps) {
           )}
         </div>
 
-        {/* NEXT button with queue count */}
-        {queue.length > 0 && (
-          <button
-            onClick={showNext}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-bold text-sm rounded-lg transition-colors animate-pulse"
-          >
-            NEXT
-            <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">{queue.length}</span>
-          </button>
-        )}
+        {/* Controls: PAUSE/RESUME only */}
+        <div className="flex items-center gap-2">
+          {current && (
+            <button
+              onClick={() => setPaused((p) => !p)}
+              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${
+                paused
+                  ? 'bg-green-600 hover:bg-green-500 text-white'
+                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+              }`}
+            >
+              {paused ? 'RESUME' : 'PAUSE'}
+            </button>
+          )}
+          {queue.length > 0 && (
+            <span className="text-xs text-gray-600">{queue.length} queued</span>
+          )}
+        </div>
       </div>
     </div>
   );
